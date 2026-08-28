@@ -448,17 +448,23 @@ kbd {
   :root { --tile: 20px; }
   body { padding: 6px 10px 8px; }
   .marquee {
+    flex-direction: column;
+    align-items: stretch;
     margin-bottom: 6px;
     padding: 0 2px;
-    gap: 8px;
+    gap: 2px;
   }
   .marquee h1 {
+    align-self: flex-start;
     font-size: 0.92rem;
     letter-spacing: 0.18em;
+    white-space: nowrap;
   }
   .marquee p {
+    align-self: flex-end;
     font-size: 0.58rem;
     letter-spacing: 0.12em;
+    white-space: nowrap;
   }
   .stage {
     grid-template-columns: 1fr 1fr;
@@ -472,7 +478,7 @@ kbd {
   .next-wrap {
     padding: 6px 10px 8px;
     width: 148px;
-    min-height: 100px;
+    min-height: 0;
     max-width: 100%;
     justify-self: center;
   }
@@ -487,10 +493,11 @@ kbd {
   .next-wrap .mini,
   #hold,
   #next {
-    width: 72px;
-    height: 72px;
-    max-width: 72px;
-    max-height: 72px;
+    width: 124px;
+    height: 50px;
+    max-width: 100%;
+    max-height: 50px;
+    aspect-ratio: auto;
     margin: 0 auto;
     border-radius: 6px;
   }

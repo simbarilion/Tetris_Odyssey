@@ -33,11 +33,24 @@
     .camera-status.is-hidden { display: none; }
     .camera-hint-short { display: none; }
     @media (max-width: 760px) {
+      .marquee {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
+      }
+      .marquee h1 {
+        align-self: flex-start;
+        white-space: nowrap;
+      }
+      .marquee p {
+        align-self: flex-end;
+        white-space: nowrap;
+      }
       .stage .hold,
       .stage .next-wrap {
         padding: 6px 10px 8px;
         width: 148px;
-        min-height: 100px;
+        min-height: 0;
         max-width: 100%;
         justify-self: center;
       }
@@ -50,10 +63,11 @@
       #hold,
       #next,
       .stage .mini {
-        width: 72px;
-        height: 72px;
-        max-width: 72px;
-        max-height: 72px;
+        width: 124px;
+        height: 50px;
+        max-width: 100%;
+        max-height: 50px;
+        aspect-ratio: auto;
         margin: 0 auto;
       }
       .stage .meters {
@@ -1109,8 +1123,9 @@
       }
       const w = maxX - minX + 1;
       const h = maxY - minY + 1;
-      const pad = 18;
-      const tile = Math.floor(Math.min((rect.width - pad * 2) / 4, (rect.height - pad * 2) / 4));
+      const short = Math.min(rect.width, rect.height);
+      const pad = short < 80 ? Math.max(4, Math.floor(short * 0.1)) : 18;
+      const tile = Math.max(1, Math.floor(Math.min((rect.width - pad * 2) / 4, (rect.height - pad * 2) / 4)));
       const ox = (rect.width - w * tile) / 2 - minX * tile;
       const oy = (rect.height - h * tile) / 2 - minY * tile;
       ctx.save();
@@ -1187,11 +1202,13 @@
     paintHud();
     showReadyOverlay();
     cabinet.focus({ preventScroll: true });
-    (function scrollMobileToEnd() {
+    (function scrollMobileToHold() {
       function go() {
         if (!window.matchMedia("(max-width: 760px)").matches) return;
-        const y = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-        window.scrollTo(0, y);
+        const target = document.querySelector(".stage");
+        if (!target) return;
+        const y = target.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo(0, Math.max(0, y));
       }
       go();
       requestAnimationFrame(go);
