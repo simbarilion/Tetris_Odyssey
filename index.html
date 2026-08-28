@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Tetris Odyssey</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="sky" aria-hidden="true">
+    <div class="sky-nebula"></div>
+    <div class="sky-motes"></div>
+    <div class="sky-motes-b"></div>
+    <div class="sky-grain"></div>
+    <div class="sky-vignette"></div>
+  </div>
+  <main class="cabinet" id="cabinet" tabindex="0" aria-label="Tetris Odyssey, tetris-like game">
+    <header class="marquee">
+      <h1>Tetris Odyssey</h1>
+      <p>drop · stack · clear</p>
+    </header>
+
+    <div class="stage">
+      <aside class="panel hold">
+        <h2>Hold</h2>
+        <canvas class="mini" id="hold" width="160" height="160" aria-label="Held piece"></canvas>
+      </aside>
+
+      <div class="well-col">
+        <div class="well-frame" id="wellFrame">
+          <canvas id="well" width="280" height="560" aria-label="Playfield, ten by twenty well"></canvas>
+          <div class="scan" aria-hidden="true"></div>
+          <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="overlayTitle">
+            <div>
+              <h2 id="overlayTitle"></h2>
+              <p id="overlayBody"></p>
+              <div class="level-stepper" id="levelStepper">
+                <button type="button" id="levelDown" tabindex="-1" aria-label="Lower start level">−</button>
+                <span id="startLevelValue" aria-live="polite">1</span>
+                <button type="button" id="levelUp" tabindex="-1" aria-label="Raise start level">+</button>
+              </div>
+              <div class="overlay-actions">
+                <button type="button" id="overlayAction" tabindex="-1">Start</button>
+                <button type="button" id="overlayQuit" class="overlay-quit" tabindex="-1">End game</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel next-wrap">
+        <h2>Next</h2>
+        <canvas class="mini" id="next" width="160" height="160" aria-label="Next piece"></canvas>
+      </aside>
+      <div class="panel meters">
+        <div class="stat"><dt>Score</dt><dd id="score">0</dd></div>
+        <div class="stat"><dt>Lines</dt><dd id="lines">0</dd></div>
+        <div class="stat"><dt>Level</dt><dd id="level">1</dd></div>
+        <div class="stat"><dt>Best</dt><dd id="best">0</dd></div>
+      </div>
+    </div>
+
+    <div class="pad" role="group" aria-label="Touch controls">
+      <button type="button" data-act="left" tabindex="-1" aria-label="Move left">Left</button>
+      <button type="button" data-act="right" tabindex="-1" aria-label="Move right">Right</button>
+      <button type="button" data-act="rotate" tabindex="-1" aria-label="Rotate clockwise">Turn</button>
+      <button type="button" data-act="hard" tabindex="-1" aria-label="Hard drop">Drop</button>
+      <button type="button" data-act="hold" tabindex="-1" aria-label="Hold piece">Hold</button>
+      <button type="button" data-act="pause" tabindex="-1" aria-label="Pause">Pause</button>
+    </div>
+
+    <p class="hint">
+      <kbd>←</kbd> <kbd>→</kbd> move ·
+      <kbd>Space</kbd> drop ·
+      <kbd>↑</kbd> / <kbd>X</kbd> rotate ·
+      <kbd>C</kbd> / <kbd>Shift</kbd> hold ·
+      <kbd>P</kbd> / <kbd>Esc</kbd> pause ·
+      <kbd>Enter</kbd> start ·
+      <kbd>R</kbd> back to start
+    </p>
+  </main>
+
+  <script>
+    /*
+      Tetris Odyssey — collision / rotation / lock notes
+      -----------------------------------------------
+      Grid is 10×20. Pieces may occupy y < 0 while spawning (hidden row).
+      Collision: any cell with x outside 0..9, y >= 20, or y >= 0 sitting on a filled cell.
+
+      Rotation is clockwise SRS. Kick tables below use screen Y (positive down),
+      converted from Guideline SRS (Y positive up) by negating Y. Tests try
+      (0,0) then the four kicks. O has no kicks.
+
+      Lock delay: after a piece is grounded, it locks in LOCK_DELAY_MS.
+      A successful horizontal move or rotation while grounded resets the timer
+      and spends one of MAX_LOCK_RESETS. Gravity does not reset.
+      Hard drop locks immediately. After the reset budget is spent, the piece
+      locks on the current timer without further resets.
+    */
+
+    // ---- constants ----
+    const COLS = 10;
+    const ROWS = 20;
+    const HIDDEN_ROWS = 2;
+    const SPAWN_X = 3;
+    const LINES_PER_LEVEL = 10;
+    const MAX_LEVEL = 30;
+    const MAX_START_LEVEL = 10;
+    const STEP_MS = 1000 / 60;
+    const DAS_MS = 170;
+    const ARR_MS = 33;
+    const LOCK_DELAY_MS = 500;
+    const MAX_LOCK_RESETS = 15;
+    const CLEAR_MS = 220;
+    const SHAKE_MS = 180;
+    const SHAKE_PX = 5;
+    const STORAGE_KEY = "tetris-odyssey-best";
+    const LINE_SCORE = [0, 100, 300, 500, 800];
+    const HARD_DROP_BONUS = 2;
+    const GRAVITY_FRAMES = [
+      48, 43, 38, 33, 28, 23, 18, 13, 8, 6,
+      5, 5, 5, 4, 4, 4, 3, 3, 3, 2,
+      2, 2, 2, 2, 2, 2, 2, 2, 2, 1
+    ];
+
+    const PIECES = ["I", "O", "T", "S", "Z", "J", "L"];
+
+    const COLORS = {
+      I: "#5ec8d8",
+      O: "#e6c35c",
+      T: "#b57ad6",
+      S: "#5cbf8a",
+      Z: "#e05a6a",
+      J: "#5a7fd6",
+      L: "#e08a45"
+    };
+
+    // Four SRS rotation states as local cells [x, y].
+    const SHAPES = {
+      I: [
+        [[0, 1], [1, 1], [2, 1], [3, 1]],
+        [[2, 0], [2, 1], [2, 2], [2, 3]],
+        [[0, 2], [1, 2], [2, 2], [3, 2]],
+        [[1, 0], [1, 1], [1, 2], [1, 3]]
+      ],
+      O: [
+        [[1, 0], [2, 0], [1, 1], [2, 1]],
+        [[1, 0], [2, 0], [1, 1], [2, 1]],
+        [[1, 0], [2, 0], [1, 1], [2, 1]],
+        [[1, 0], [2, 0], [1, 1], [2, 1]]
+      ],
+      T: [
+        [[1, 0], [0, 1], [1, 1], [2, 1]],
+        [[1, 0], [1, 1], [2, 1], [1, 2]],
+        [[0, 1], [1, 1], [2, 1], [1, 2]],
+        [[1, 0], [0, 1], [1, 1], [1, 2]]
+      ],
+      S: [
+        [[1, 0], [2, 0], [0, 1], [1, 1]],
+        [[1, 0], [1, 1], [2, 1], [2, 2]],
+        [[1, 1], [2, 1], [0, 2], [1, 2]],
+        [[0, 0], [0, 1], [1, 1], [1, 2]]
+      ],
+      Z: [
+        [[0, 0], [1, 0], [1, 1], [2, 1]],
+        [[2, 0], [1, 1], [2, 1], [1, 2]],
+        [[0, 1], [1, 1], [1, 2], [2, 2]],
+        [[1, 0], [0, 1], [1, 1], [0, 2]]
+      ],
+      J: [
+        [[0, 0], [0, 1], [1, 1], [2, 1]],
+        [[1, 0], [2, 0], [1, 1], [1, 2]],
+        [[0, 1], [1, 1], [2, 1], [2, 2]],
+        [[1, 0], [1, 1], [0, 2], [1, 2]]
+      ],
+      L: [
+        [[2, 0], [0, 1], [1, 1], [2, 1]],
+        [[1, 0], [1, 1], [1, 2], [2, 2]],
+        [[0, 1], [1, 1], [2, 1], [0, 2]],
+        [[0, 0], [1, 0], [1, 1], [1, 2]]
+      ]
+    };
+
+    // Screen-space kicks (Y+ down). First implicit test is always (0,0).
+    const KICKS_JLSTZ = {
+      "0>1": [[-1, 0], [-1, -1], [0, 2], [-1, 2]],
+      "1>0": [[1, 0], [1, 1], [0, -2], [1, -2]],
+      "1>2": [[1, 0], [1, 1], [0, -2], [1, -2]],
+      "2>1": [[-1, 0], [-1, -1], [0, 2], [-1, 2]],
+      "2>3": [[1, 0], [1, -1], [0, 2], [1, 2]],
+      "3>2": [[-1, 0], [-1, 1], [0, -2], [-1, -2]],
+      "3>0": [[-1, 0], [-1, 1], [0, -2], [-1, -2]],
+      "0>3": [[1, 0], [1, -1], [0, 2], [1, 2]]
+    };
+
+    const KICKS_I = {
+      "0>1": [[-2, 0], [1, 0], [-2, 1], [1, -2]],
+      "1>0": [[2, 0], [-1, 0], [2, -1], [-1, 2]],
+      "1>2": [[-1, 0], [2, 0], [-1, -2], [2, 1]],
+      "2>1": [[1, 0], [-2, 0], [1, 2], [-2, -1]],
+      "2>3": [[2, 0], [-1, 0], [2, -1], [-1, 2]],
+      "3>2": [[-2, 0], [1, 0], [-2, 1], [1, -2]],
+      "3>0": [[1, 0], [-2, 0], [1, 2], [-2, -1]],
+      "0>3": [[-1, 0], [2, 0], [-1, -2], [2, 1]]
+    };
+
+    const STATUS = {
+      READY: "ready",
+      PLAYING: "playing",
+      PAUSED: "paused",
+      ENDED: "ended",
+      OVER: "over"
+    };
+
+    // ---- state ----
+    const wellCanvas = document.getElementById("well");
+    const wellFrame = document.getElementById("wellFrame");
+    const holdCanvas = document.getElementById("hold");
+    const nextCanvas = document.getElementById("next");
+    const overlayEl = document.getElementById("overlay");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const overlayBody = document.getElementById("overlayBody");
+    const overlayAction = document.getElementById("overlayAction");
+    const overlayQuit = document.getElementById("overlayQuit");
+    const levelStepper = document.getElementById("levelStepper");
+    const levelDown = document.getElementById("levelDown");
+    const levelUp = document.getElementById("levelUp");
+    const startLevelValue = document.getElementById("startLevelValue");
+    const cabinet = document.getElementById("cabinet");
+
+    const hud = {
+      score: document.getElementById("score"),
+      lines: document.getElementById("lines"),
+      level: document.getElementById("level"),
+      best: document.getElementById("best")
+    };
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const keys = {
+      left: false,
+      right: false
+    };
+
+    const das = {
+      dir: 0,
+      delay: 0,
+      repeat: 0
+    };
+
+    let acc = 0;
+    let lastTs = 0;
+    let shakeT = 0;
+
+    const model = createModel();
+
+    function clampStartLevel(n) {
+      const v = Math.round(Number(n));
+      if (!Number.isFinite(v)) return 1;
+      return Math.min(MAX_START_LEVEL, Math.max(1, v));
+    }
+
+    function levelFromLines(startLevel, lines) {
+      return Math.min(MAX_LEVEL, startLevel + Math.floor(lines / LINES_PER_LEVEL));
+    }
+
+    function createModel(startLevel) {
+      const start = clampStartLevel(startLevel);
+      return {
+        board: emptyBoard(),
+        current: null,
+        next: null,
+        hold: null,
+        bag: [],
+        canHold: true,
+        score: 0,
+        lines: 0,
+        startLevel: start,
+        level: start,
+        best: loadBest(),
+        status: STATUS.READY,
+        gravityTimer: 0,
+        lockTimer: 0,
+        lockResets: 0,
+        flashRows: [],
+        flashTimer: 0
+      };
+    }
+
+    function emptyBoard() {
+      return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    }
+
+    function emptyRow() {
+      return Array(COLS).fill(null);
+    }
+
+    // ---- tetrominoes / bag ----
+    function shuffleBag() {
+      const bag = PIECES.slice();
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+      return bag;
+    }
+
+    function takeFromBag() {
+      if (model.bag.length === 0) model.bag = shuffleBag();
+      return model.bag.shift();
+    }
+
+    function cellsOf(type, rot) {
+      return SHAPES[type][rot];
+    }
+
+    function spawnY(type) {
+      return type === "I" ? -1 : 0;
+    }
+
+    // ---- collision ----
+    function collides(x, y, rot, type, board) {
+      const grid = board || model.board;
+      for (const [cx, cy] of cellsOf(type, rot)) {
+        const px = x + cx;
+        const py = y + cy;
+        if (px < 0 || px >= COLS || py >= ROWS || py < -HIDDEN_ROWS) return true;
+        if (py >= 0 && grid[py][px]) return true;
+      }
+      return false;
+    }
+
+    function isGrounded(piece) {
+      const p = piece || model.current;
+      if (!p) return false;
+      return collides(p.x, p.y + 1, p.rot, p.type);
+    }
+
+    function ghostY(piece) {
+      let y = piece.y;
+      while (!collides(piece.x, y + 1, piece.rot, piece.type)) y += 1;
+      return y;
+    }
+
+    // ---- rotation ----
+    function kicksFor(type, from, to) {
+      if (type === "O") return [];
+      const key = from + ">" + to;
+      return type === "I" ? KICKS_I[key] : KICKS_JLSTZ[key];
+    }
+
+    function tryRotate(dir) {
+      const p = model.current;
+      if (!p || model.flashRows.length) return false;
+      const nextRot = (p.rot + dir + 4) % 4;
+      const tests = [[0, 0], ...kicksFor(p.type, p.rot, nextRot)];
+      for (const [dx, dy] of tests) {
+        const nx = p.x + dx;
+        const ny = p.y + dy;
+        if (!collides(nx, ny, nextRot, p.type)) {
+          p.x = nx;
+          p.y = ny;
+          p.rot = nextRot;
+          onShiftOrRotate();
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function tryMove(dx, dy, opts) {
+      const p = model.current;
+      if (!p || model.flashRows.length) return false;
+      const nx = p.x + dx;
+      const ny = p.y + dy;
+      if (collides(nx, ny, p.rot, p.type)) return false;
+      p.x = nx;
+      p.y = ny;
+      if (dx !== 0 && (!opts || !opts.fromGravity)) onShiftOrRotate();
+      return true;
+    }
+
+    function onShiftOrRotate() {
+      if (!isGrounded()) {
+        model.lockTimer = 0;
+        return;
+      }
+      if (model.lockResets < MAX_LOCK_RESETS) {
+        model.lockTimer = 0;
+        model.lockResets += 1;
+      }
+    }
+
+    // ---- scoring / lines ----
+    function gravityMs(level) {
+      const frames = GRAVITY_FRAMES[Math.min(level, GRAVITY_FRAMES.length) - 1];
+      return frames * (1000 / 60);
+    }
+
+    function addScore(amount) {
+      if (!amount) return;
+      model.score += amount;
+      if (model.score > model.best) {
+        model.best = model.score;
+        saveBest(model.best);
+      }
+      paintHud();
+      pulseStat(hud.score);
+      if (model.score === model.best && amount > 0) pulseStat(hud.best);
+    }
+
+    function pulseStat(el) {
+      if (reduceMotion || !el) return;
+      el.classList.remove("is-tick");
+      void el.offsetWidth;
+      el.classList.add("is-tick");
+    }
+
+    function fullRows() {
+      const rows = [];
+      for (let y = 0; y < ROWS; y++) {
+        if (model.board[y].every(Boolean)) rows.push(y);
+      }
+      return rows;
+    }
+
+    function startClear(rows) {
+      model.flashRows = rows;
+      model.flashTimer = CLEAR_MS;
+      addScore(LINE_SCORE[rows.length] * model.level);
+    }
+
+    function finishClear() {
+      const skip = new Set(model.flashRows);
+      const kept = model.board.filter((_, y) => !skip.has(y));
+      const n = model.flashRows.length;
+      while (kept.length < ROWS) kept.unshift(emptyRow());
+      model.board = kept;
+      model.flashRows = [];
+      model.flashTimer = 0;
+      model.lines += n;
+      model.level = levelFromLines(model.startLevel, model.lines);
+      paintHud();
+      spawnCurrent();
+      model.canHold = true;
+    }
+
+    // ---- piece lifecycle ----
+    function makePiece(type) {
+      return { type, rot: 0, x: SPAWN_X, y: spawnY(type) };
+    }
+
+    function spawnCurrent(type) {
+      let nextType = type;
+      if (!nextType) {
+        if (model.next) {
+          nextType = model.next;
+          model.next = takeFromBag();
+        } else {
+          nextType = takeFromBag();
+          model.next = takeFromBag();
+        }
+      }
+      const piece = makePiece(nextType);
+      model.current = piece;
+      model.gravityTimer = 0;
+      model.lockTimer = 0;
+      model.lockResets = 0;
+      if (collides(piece.x, piece.y, piece.rot, piece.type)) {
+        gameOver();
+      }
+    }
+
+    function lockPiece() {
+      const p = model.current;
+      if (!p) return;
+      for (const [cx, cy] of cellsOf(p.type, p.rot)) {
+        const x = p.x + cx;
+        const y = p.y + cy;
+        if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
+          model.board[y][x] = p.type;
+        }
+      }
+      model.current = null;
+      const rows = fullRows();
+      if (rows.length) startClear(rows);
+      else {
+        spawnCurrent();
+        model.canHold = true;
+      }
+    }
+
+    function hardDrop() {
+      const p = model.current;
+      if (!p || model.flashRows.length) return;
+      let cells = 0;
+      while (tryMove(0, 1, { fromGravity: true })) cells += 1;
+      if (cells) addScore(cells * HARD_DROP_BONUS);
+      shakeT = reduceMotion ? 0 : SHAKE_MS;
+      lockPiece();
+    }
+
+    function holdPiece() {
+      if (!model.canHold || !model.current || model.flashRows.length) return;
+      model.canHold = false;
+      const parked = model.current.type;
+      if (model.hold) {
+        const swapped = model.hold;
+        model.hold = parked;
+        spawnCurrent(swapped);
+      } else {
+        model.hold = parked;
+        spawnCurrent();
+      }
+    }
+
+    // ---- status ----
+    function gameOver() {
+      model.status = STATUS.OVER;
+      model.level = model.startLevel;
+      paintHud();
+      showOverlay("The well is full", overlayScoreText(), "Start");
+      setStepperVisible(true);
+      setQuitVisible(false);
+    }
+
+    function pauseGame() {
+      if (model.status !== STATUS.PLAYING) return;
+      model.status = STATUS.PAUSED;
+      showOverlay("Suspended", "The stack is waiting.", "Resume");
+      setStepperVisible(false);
+      setQuitVisible(true);
+    }
+
+    function endGame() {
+      if (model.status !== STATUS.PAUSED) return;
+      model.status = STATUS.ENDED;
+      showOverlay("Run ended", overlayScoreText(), "Start new");
+      setStepperVisible(false);
+      setQuitVisible(false);
+    }
+
+    function resumeGame() {
+      if (model.status !== STATUS.PAUSED) return;
+      model.status = STATUS.PLAYING;
+      hideOverlay();
+      cabinet.focus();
+    }
+
+    function togglePause() {
+      if (model.status !== STATUS.PLAYING && model.status !== STATUS.PAUSED) return;
+      if (model.status === STATUS.PAUSED) resumeGame();
+      else pauseGame();
+    }
+
+    function startRun() {
+      if (model.status !== STATUS.READY && model.status !== STATUS.OVER) return;
+      const start = model.startLevel;
+      const best = model.best;
+      Object.assign(model, createModel(start), { best, status: STATUS.PLAYING });
+      hideOverlay();
+      spawnCurrent();
+      paintHud();
+      cabinet.focus();
+    }
+
+    function returnToReady() {
+      const start = model.startLevel;
+      const best = model.best;
+      Object.assign(model, createModel(start), { best });
+      showReadyOverlay();
+      paintHud();
+      cabinet.focus();
+    }
+
+    function showReadyOverlay() {
+      showOverlay("Tetris Odyssey", "Choose a start level.", "Start");
+      setStepperVisible(true);
+      setQuitVisible(false);
+    }
+
+    function clampStartAndPaint(n) {
+      model.startLevel = clampStartLevel(n);
+      model.level = model.startLevel;
+      paintHud();
+      paintStepper();
+    }
+
+    function adjustStartLevel(delta) {
+      if (model.status !== STATUS.READY && model.status !== STATUS.OVER) return;
+      clampStartAndPaint(model.startLevel + delta);
+    }
+
+    function overlayScoreText() {
+      const bestNote = model.score >= model.best && model.score > 0 ? " · new best" : "";
+      return "Score " + model.score + bestNote;
+    }
+
+    function showOverlay(title, body, action) {
+      overlayTitle.textContent = title;
+      overlayBody.textContent = body;
+      overlayAction.textContent = action;
+      overlayEl.classList.add("is-open");
+      overlayEl.setAttribute("aria-hidden", "false");
+    }
+
+    function hideOverlay() {
+      overlayEl.classList.remove("is-open");
+      overlayEl.setAttribute("aria-hidden", "true");
+      setStepperVisible(false);
+      setQuitVisible(false);
+    }
+
+    function setQuitVisible(on) {
+      overlayQuit.classList.toggle("is-open", on);
+    }
+
+    function setStepperVisible(on) {
+      levelStepper.classList.toggle("is-open", on);
+      if (on) paintStepper();
+    }
+
+    function paintStepper() {
+      startLevelValue.textContent = String(model.startLevel);
+      levelDown.disabled = model.startLevel <= 1;
+      levelUp.disabled = model.startLevel >= MAX_START_LEVEL;
+    }
+
+    // ---- persistence ----
+    function loadBest() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const n = Number(raw);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      } catch (err) {
+        return 0;
+      }
+    }
+
+    function saveBest(value) {
+      try {
+        localStorage.setItem(STORAGE_KEY, String(value));
+      } catch (err) {
+        // private mode / blocked storage: keep the run going
+      }
+    }
+
+    function paintHud() {
+      hud.score.textContent = String(model.score);
+      hud.lines.textContent = String(model.lines);
+      hud.level.textContent = String(model.level);
+      hud.best.textContent = String(model.best);
+    }
+
+    // ---- input ----
+    const KEY_MAP = {
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      ArrowUp: "rotate",
+      KeyX: "rotate",
+      Space: "hard",
+      Enter: "start",
+      KeyC: "hold",
+      ShiftLeft: "hold",
+      ShiftRight: "hold",
+      KeyP: "pause",
+      Escape: "pause",
+      KeyR: "restart",
+      Minus: "levelDown",
+      NumpadSubtract: "levelDown",
+      Equal: "levelUp",
+      NumpadAdd: "levelUp"
+    };
+
+    function bindDir(name, down) {
+      if (name === "left") {
+        keys.left = down;
+        if (down) {
+          keys.right = false;
+          das.dir = -1;
+          das.delay = 0;
+          das.repeat = 0;
+          tryMove(-1, 0);
+        } else if (!keys.right) {
+          das.dir = 0;
+        }
+      } else if (name === "right") {
+        keys.right = down;
+        if (down) {
+          keys.left = false;
+          das.dir = 1;
+          das.delay = 0;
+          das.repeat = 0;
+          tryMove(1, 0);
+        } else if (!keys.left) {
+          das.dir = 0;
+        }
+      }
+    }
+
+    function fireAction(name) {
+      if (name === "restart") {
+        returnToReady();
+        return;
+      }
+      if (name === "start") {
+        if (model.status === STATUS.ENDED) returnToReady();
+        else startRun();
+        return;
+      }
+      if (name === "levelDown") {
+        adjustStartLevel(-1);
+        return;
+      }
+      if (name === "levelUp") {
+        adjustStartLevel(1);
+        return;
+      }
+      if (name === "pause") {
+        togglePause();
+        return;
+      }
+      if (name === "hard") {
+        if (model.status === STATUS.ENDED) {
+          returnToReady();
+          return;
+        }
+        if (model.status === STATUS.READY || model.status === STATUS.OVER) {
+          startRun();
+          return;
+        }
+        if (model.status === STATUS.PAUSED) {
+          resumeGame();
+          return;
+        }
+      }
+      if (model.status !== STATUS.PLAYING) return;
+      if (name === "rotate") tryRotate(1);
+      if (name === "hard") hardDrop();
+      if (name === "hold") holdPiece();
+    }
+
+    function onKeyDown(e) {
+      const name = KEY_MAP[e.code];
+      if (!name) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (name === "left" || name === "right") bindDir(name, true);
+      else fireAction(name);
+    }
+
+    function onKeyUp(e) {
+      const name = KEY_MAP[e.code];
+      if (!name) return;
+      e.preventDefault();
+      if (name === "left" || name === "right") bindDir(name, false);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+
+    function pointerBind(btn, down) {
+      const act = btn.dataset.act;
+      if (act === "left" || act === "right") bindDir(act, down);
+      else if (down) fireAction(act);
+    }
+
+    document.querySelectorAll(".pad button").forEach((btn) => {
+      const keepKeys = () => {
+        btn.blur();
+        cabinet.focus({ preventScroll: true });
+      };
+      let fromPointer = false;
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        fromPointer = true;
+        btn.setPointerCapture(e.pointerId);
+        keepKeys();
+        pointerBind(btn, true);
+      });
+      const stop = (e) => {
+        e.preventDefault();
+        keepKeys();
+        pointerBind(btn, false);
+      };
+      btn.addEventListener("pointerup", stop);
+      btn.addEventListener("pointercancel", stop);
+      btn.addEventListener("lostpointercapture", () => pointerBind(btn, false));
+      btn.addEventListener("mousedown", (e) => e.preventDefault());
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        keepKeys();
+        if (fromPointer) {
+          fromPointer = false;
+          return;
+        }
+        const act = btn.dataset.act;
+        if (act === "left" || act === "right") {
+          bindDir(act, true);
+          bindDir(act, false);
+        } else {
+          fireAction(act);
+        }
+      });
+    });
+
+    function onOverlayPrimary() {
+      if (model.status === STATUS.PAUSED) resumeGame();
+      else if (model.status === STATUS.ENDED) returnToReady();
+      else if (model.status === STATUS.READY || model.status === STATUS.OVER) startRun();
+    }
+
+    let overlayFromPointer = false;
+    overlayAction.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      overlayFromPointer = true;
+      overlayAction.blur();
+      onOverlayPrimary();
+    });
+    overlayAction.addEventListener("click", (e) => {
+      e.preventDefault();
+      overlayAction.blur();
+      if (overlayFromPointer) {
+        overlayFromPointer = false;
+        return;
+      }
+      onOverlayPrimary();
+    });
+    overlayAction.addEventListener("mousedown", (e) => e.preventDefault());
+
+    function onOverlayQuit() {
+      if (model.status !== STATUS.PAUSED) return;
+      endGame();
+    }
+
+    let quitFromPointer = false;
+    overlayQuit.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      quitFromPointer = true;
+      overlayQuit.blur();
+      onOverlayQuit();
+    });
+    overlayQuit.addEventListener("click", (e) => {
+      e.preventDefault();
+      overlayQuit.blur();
+      if (quitFromPointer) {
+        quitFromPointer = false;
+        return;
+      }
+      onOverlayQuit();
+    });
+    overlayQuit.addEventListener("mousedown", (e) => e.preventDefault());
+
+    function bindStepper(btn, delta) {
+      const keepKeys = () => {
+        btn.blur();
+        cabinet.focus({ preventScroll: true });
+      };
+      let fromPointer = false;
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        fromPointer = true;
+        keepKeys();
+        adjustStartLevel(delta);
+      });
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        keepKeys();
+        if (fromPointer) {
+          fromPointer = false;
+          return;
+        }
+        adjustStartLevel(delta);
+      });
+      btn.addEventListener("mousedown", (e) => e.preventDefault());
+    }
+    bindStepper(levelDown, -1);
+    bindStepper(levelUp, 1);
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) pauseGame();
+    });
+
+    window.addEventListener("blur", () => pauseGame());
+
+    // ---- loop ----
+    function tick(dt) {
+      if (model.status !== STATUS.PLAYING) return;
+
+      if (model.flashRows.length) {
+        model.flashTimer -= dt;
+        if (model.flashTimer <= 0) finishClear();
+        return;
+      }
+
+      if (das.dir !== 0) {
+        das.delay += dt;
+        if (das.delay >= DAS_MS) {
+          das.repeat += dt;
+          while (das.repeat >= ARR_MS) {
+            das.repeat -= ARR_MS;
+            tryMove(das.dir, 0);
+          }
+        }
+      }
+
+      if (!model.current) return;
+
+      model.gravityTimer += dt;
+      const g = gravityMs(model.level);
+      while (model.gravityTimer >= g) {
+        model.gravityTimer -= g;
+        tryMove(0, 1, { fromGravity: true });
+      }
+
+      if (isGrounded()) {
+        model.lockTimer += dt;
+        if (model.lockTimer >= LOCK_DELAY_MS) lockPiece();
+      } else {
+        model.lockTimer = 0;
+      }
+    }
+
+    function frame(ts) {
+      if (!lastTs) lastTs = ts;
+      let delta = ts - lastTs;
+      lastTs = ts;
+      if (delta > 250) delta = 250;
+      acc += delta;
+      while (acc >= STEP_MS) {
+        tick(STEP_MS);
+        acc -= STEP_MS;
+      }
+      if (shakeT > 0) shakeT = Math.max(0, shakeT - delta);
+      render();
+      requestAnimationFrame(frame);
+    }
+
+    // ---- render ----
+    function sizeCanvas(canvas, cssW, cssH) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.round(cssW * dpr));
+      const h = Math.max(1, Math.round(cssH * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return ctx;
+    }
+
+    function layoutWell() {
+      const styles = getComputedStyle(document.documentElement);
+      const tile = parseFloat(styles.getPropertyValue("--tile")) || 28;
+      wellCanvas.style.width = (tile * COLS) + "px";
+      wellCanvas.style.height = (tile * ROWS) + "px";
+    }
+
+    function drawCell(ctx, tile, x, y, color, mode) {
+      const px = x * tile;
+      const py = y * tile;
+      const inset = Math.max(1, tile * 0.08);
+      if (mode === "ghost") {
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = Math.max(1, tile * 0.08);
+        ctx.strokeRect(px + inset, py + inset, tile - inset * 2, tile - inset * 2);
+        ctx.globalAlpha = 1;
+        return;
+      }
+      ctx.fillStyle = color;
+      ctx.fillRect(px + 1, py + 1, tile - 2, tile - 2);
+      if (mode === "flash") {
+        ctx.fillStyle = varFlash();
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(px + 1, py + 1, tile - 2, tile - 2);
+        ctx.globalAlpha = 1;
+        return;
+      }
+      ctx.fillStyle = "rgba(255,255,255,0.2)";
+      ctx.fillRect(px + 1, py + 1, tile - 2, Math.max(2, tile * 0.16));
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(px + 1, py + tile - Math.max(3, tile * 0.18), tile - 2, Math.max(2, tile * 0.14));
+    }
+
+    function varFlash() {
+      return getComputedStyle(document.documentElement).getPropertyValue("--flash").trim() || "#f4f0e4";
+    }
+
+    function drawPiece(ctx, tile, piece, oy, mode) {
+      for (const [cx, cy] of cellsOf(piece.type, piece.rot)) {
+        const x = piece.x + cx;
+        const y = piece.y + cy + (oy || 0);
+        if (y < 0) continue;
+        drawCell(ctx, tile, x, y, COLORS[piece.type], mode);
+      }
+    }
+
+    function drawMini(canvas, type, dimmed) {
+      const rect = canvas.getBoundingClientRect();
+      const ctx = sizeCanvas(canvas, rect.width, rect.height);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.fillStyle = "#0a0e16";
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      if (!type) return;
+      const cells = cellsOf(type, 0);
+      let minX = 4, minY = 4, maxX = 0, maxY = 0;
+      for (const [x, y] of cells) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      const pad = 18;
+      const tile = Math.floor(Math.min((rect.width - pad * 2) / 4, (rect.height - pad * 2) / 4));
+      const ox = (rect.width - w * tile) / 2 - minX * tile;
+      const oy = (rect.height - h * tile) / 2 - minY * tile;
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.globalAlpha = dimmed ? 0.35 : 1;
+      for (const [x, y] of cells) drawCell(ctx, tile, x, y, COLORS[type], "solid");
+      ctx.restore();
+    }
+
+    function render() {
+      layoutWell();
+      const rect = wellCanvas.getBoundingClientRect();
+      const ctx = sizeCanvas(wellCanvas, rect.width, rect.height);
+      const tile = rect.width / COLS;
+
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.fillStyle = "#070a10";
+      ctx.fillRect(0, 0, rect.width, rect.height);
+
+      const aether = ctx.createLinearGradient(0, rect.height * 0.62, 0, rect.height);
+      aether.addColorStop(0, "rgba(7, 10, 16, 0)");
+      aether.addColorStop(1, "rgba(142, 180, 212, 0.07)");
+      ctx.fillStyle = aether;
+      ctx.fillRect(0, 0, rect.width, rect.height);
+
+      const mag = shakeT > 0 ? (shakeT / SHAKE_MS) * SHAKE_PX : 0;
+      const sx = mag ? (Math.random() * 2 - 1) * mag : 0;
+      const sy = mag ? (Math.random() * 2 - 1) * mag : 0;
+      ctx.save();
+      ctx.translate(sx, sy);
+
+      ctx.strokeStyle = "rgba(142, 180, 212, 0.07)";
+      ctx.lineWidth = 1;
+      for (let x = 1; x < COLS; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * tile, 0);
+        ctx.lineTo(x * tile, rect.height);
+        ctx.stroke();
+      }
+      for (let y = 1; y < ROWS; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * tile);
+        ctx.lineTo(rect.width, y * tile);
+        ctx.stroke();
+      }
+
+      const flashing = new Set(model.flashRows);
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const type = model.board[y][x];
+          if (!type) continue;
+          drawCell(ctx, tile, x, y, COLORS[type], flashing.has(y) ? "flash" : "solid");
+        }
+      }
+
+      if (model.current && !flashing.size) {
+        const ghost = { ...model.current, y: ghostY(model.current) };
+        if (ghost.y !== model.current.y) drawPiece(ctx, tile, ghost, 0, "ghost");
+        drawPiece(ctx, tile, model.current, 0, "solid");
+      }
+
+      ctx.restore();
+
+      wellFrame.classList.toggle("is-lit", model.flashRows.length > 0);
+      wellFrame.classList.toggle("is-tetris", model.flashRows.length >= 4);
+
+      drawMini(holdCanvas, model.hold, !model.canHold && model.status === STATUS.PLAYING);
+      drawMini(nextCanvas, model.next, false);
+    }
+
+    // ---- boot ----
+    hud.score.addEventListener("animationend", () => hud.score.classList.remove("is-tick"));
+    hud.best.addEventListener("animationend", () => hud.best.classList.remove("is-tick"));
+    paintHud();
+    showReadyOverlay();
+    cabinet.focus();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
+
