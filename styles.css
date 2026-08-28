@@ -452,7 +452,7 @@ kbd {
     align-items: stretch;
     margin-bottom: 6px;
     padding: 0 2px;
-    gap: 2px;
+    gap: 6px;
   }
   .marquee h1 {
     align-self: flex-start;
