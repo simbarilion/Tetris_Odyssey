@@ -431,6 +431,7 @@ button:active { transform: translateY(1px); }
 
 .camera-status { color: var(--danger); }
 .camera-status.is-hidden { display: none; }
+.camera-hint-short { display: none; }
 
 kbd {
   display: inline-block;
@@ -445,52 +446,100 @@ kbd {
 
 @media (max-width: 760px) {
   :root { --tile: 20px; }
-  body { padding: 10px 10px 16px; }
-  .marquee { margin-bottom: 10px; }
+  body { padding: 6px 10px 8px; }
+  .marquee {
+    margin-bottom: 6px;
+    padding: 0 2px;
+    gap: 8px;
+  }
+  .marquee h1 {
+    font-size: 0.92rem;
+    letter-spacing: 0.18em;
+  }
+  .marquee p {
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+  }
   .stage {
     grid-template-columns: 1fr 1fr;
     grid-template-areas:
       "hold next"
       "meters meters"
       "well well";
-    gap: 10px;
+    gap: 6px;
   }
-  .mini {
-    max-width: 92px;
-    max-height: 92px;
+  .hold,
+  .next-wrap {
+    padding: 6px 10px 8px;
+    width: 148px;
+    min-height: 100px;
+    max-width: 100%;
+    justify-self: center;
+  }
+  .hold h2,
+  .next-wrap h2 {
+    margin: 0 0 4px;
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+  }
+  .mini,
+  .hold .mini,
+  .next-wrap .mini,
+  #hold,
+  #next {
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
     margin: 0 auto;
+    border-radius: 6px;
   }
   .meters {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    padding: 10px;
+    gap: 2px;
+    padding: 4px 6px;
   }
   .stat { margin-top: 0; text-align: center; }
-  .stat dd { font-size: 1.05rem; }
+  .stat dt { margin-bottom: 1px; font-size: 0.48rem; }
+  .stat dd { font-size: 0.78rem; }
   .pad {
     grid-template-columns: repeat(3, 1fr);
-    margin-top: 12px;
+    margin-top: 8px;
+    gap: 6px;
   }
-  button { min-height: 48px; }
+  button {
+    min-height: 36px;
+    font-size: 0.58rem;
+  }
   .hint { display: none; }
   .camera-hint,
   .camera-status {
-    padding: 12px 14px;
-    font-size: 0.78rem;
+    margin-top: 6px;
+    padding: 6px 8px;
+    font-size: 0.58rem;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
   }
+  .camera-hint {
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .camera-hint-full { display: none; }
+  .camera-hint-short { display: inline; }
 }
 
 @media (max-width: 420px) {
   :root { --tile: 18px; }
+  .camera-hint { font-size: 0.5rem; padding: 5px 6px; }
 }
 
 @media (min-width: 761px) {
   :root {
-    --tile: clamp(28px, calc((100vh - 500px) / 20), 40px);
+    --tile: clamp(24px, calc((100dvh - 540px) / 20), 38px);
   }
 
-  body { padding: 22px 24px 28px; }
+  body { padding: 26px 24px 16px; }
 
   body::before,
   body::after {
@@ -527,12 +576,13 @@ kbd {
   }
 
   .marquee {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
     flex-wrap: nowrap;
-    gap: 8px;
-    margin-bottom: 20px;
-    padding: 18px 24px 16px;
+    gap: 16px;
+    margin-bottom: 26px;
+    padding: 12px 22px;
     background: linear-gradient(180deg, #1c2332, var(--plate));
     border: 1px solid var(--edge);
     border-radius: var(--radius);
@@ -540,14 +590,12 @@ kbd {
   }
 
   .marquee h1 {
-    align-self: flex-start;
     font-size: clamp(1.7rem, 2.8vw, 2.2rem);
     letter-spacing: 0.2em;
     white-space: nowrap;
   }
 
   .marquee p {
-    align-self: flex-end;
     font-size: 0.98rem;
     letter-spacing: 0.16em;
     white-space: nowrap;
@@ -560,7 +608,7 @@ kbd {
       "hold next"
       "meters meters"
       "well well";
-    gap: 20px;
+    gap: 12px;
   }
 
   .hold,
@@ -570,8 +618,8 @@ kbd {
     align-items: center;
     justify-content: center;
     gap: 18px;
-    padding: 14px 20px;
-    min-height: 118px;
+    padding: 10px 18px;
+    min-height: 0;
   }
 
   .hold h2,
@@ -593,7 +641,7 @@ kbd {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
-    padding: 14px 16px;
+    padding: 10px 16px;
   }
 
   .stat {
@@ -643,18 +691,18 @@ kbd {
   }
 
   .pad {
-    margin-top: 16px;
+    margin-top: 12px;
     gap: 10px;
   }
 
   .pad button {
-    min-height: 56px;
+    min-height: 48px;
     font-size: 0.74rem;
   }
 
   .hint {
-    margin: 40px 0 0;
-    padding: 16px 20px 18px;
+    margin: 36px 0 0;
+    padding: 12px 18px 14px;
     font-size: 0.88rem;
     letter-spacing: 0.05em;
     line-height: 1.7;
@@ -663,6 +711,14 @@ kbd {
     border: 1px solid var(--edge);
     border-radius: var(--radius);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .camera-hint,
+  .camera-status {
+    margin-top: 16px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
+    line-height: 1.45;
   }
 
   .hint kbd {

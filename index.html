@@ -31,11 +31,66 @@
     }
     .camera-status { color: var(--danger); }
     .camera-status.is-hidden { display: none; }
+    .camera-hint-short { display: none; }
     @media (max-width: 760px) {
+      .stage .hold,
+      .stage .next-wrap {
+        padding: 6px 10px 8px;
+        width: 148px;
+        min-height: 100px;
+        max-width: 100%;
+        justify-self: center;
+      }
+      .stage .hold h2,
+      .stage .next-wrap h2 {
+        margin: 0 0 4px;
+        font-size: 0.58rem;
+        letter-spacing: 0.12em;
+      }
+      #hold,
+      #next,
+      .stage .mini {
+        width: 72px;
+        height: 72px;
+        max-width: 72px;
+        max-height: 72px;
+        margin: 0 auto;
+      }
+      .stage .meters {
+        gap: 2px;
+        padding: 4px 6px;
+      }
+      .stage .stat dt {
+        margin-bottom: 1px;
+        font-size: 0.48rem;
+      }
+      .stage .stat dd { font-size: 0.78rem; }
       .camera-hint,
       .camera-status {
-        padding: 12px 14px;
-        font-size: 0.78rem;
+        margin-top: 6px;
+        padding: 6px 8px;
+        font-size: 0.58rem;
+        letter-spacing: 0.01em;
+        line-height: 1.2;
+      }
+      .camera-hint {
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .camera-hint-full { display: none; }
+      .camera-hint-short { display: inline; }
+    }
+    @media (max-width: 420px) {
+      .camera-hint { font-size: 0.5rem; padding: 5px 6px; }
+    }
+    @media (min-width: 761px) {
+      .hint { margin-top: 36px; }
+      .camera-hint,
+      .camera-status {
+        margin-top: 16px;
+        padding: 10px 16px;
+        font-size: 0.8rem;
+        line-height: 1.45;
       }
     }
   </style>
@@ -113,7 +168,8 @@
       <kbd>R</kbd> back to start
     </p>
     <p class="camera-hint">
-      Камера: наклон головы влево / вправо — сдвиг фигуры · кивок — поворот
+      <span class="camera-hint-full">Камера: наклон головы влево / вправо — сдвиг фигуры · кивок — поворот</span>
+      <span class="camera-hint-short">Наклон головы влево / вправо — сдвиг фигуры · кивок — поворот</span>
     </p>
     <p class="camera-status" id="cameraStatus" role="status">Камера недоступна, используйте кнопки.</p>
     <video id="cameraFeed" class="camera-feed" playsinline muted autoplay></video>
@@ -1130,7 +1186,19 @@
     hud.best.addEventListener("animationend", () => hud.best.classList.remove("is-tick"));
     paintHud();
     showReadyOverlay();
-    cabinet.focus();
+    cabinet.focus({ preventScroll: true });
+    (function scrollMobileToEnd() {
+      function go() {
+        if (!window.matchMedia("(max-width: 760px)").matches) return;
+        const y = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        window.scrollTo(0, y);
+      }
+      go();
+      requestAnimationFrame(go);
+      window.addEventListener("load", go);
+      setTimeout(go, 80);
+      setTimeout(go, 320);
+    })();
     window.TetrisOdyssey = {
       isPlaying() { return model.status === STATUS.PLAYING; },
       moveLeft() {

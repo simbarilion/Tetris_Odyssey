@@ -42,8 +42,24 @@
 @media (max-width: 760px) {
   .camera-hint,
   .camera-status {
-    margin-top: 12px;
-    padding: 12px 14px;
-    font-size: 0.78rem;
+    margin-top: 6px;
+    padding: 6px 8px;
+    font-size: 0.58rem;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+  }
+  .camera-hint {
+    white-space: nowrap;
+    overflow: hidden;
+  }
+}
+
+@media (min-width: 761px) {
+  .camera-hint,
+  .camera-status {
+    margin-top: 16px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
+    line-height: 1.45;
   }
 }
